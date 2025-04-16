@@ -1060,7 +1060,7 @@ sp_helptext fn_GetEmployeeNameById
 
 select dbo.fn_GetEmployeeNameById(3)
 
---kr[pteerige funktsioon fn_GetEmployeeNameById
+--krüpteerige funktsioon fn_GetEmployeeNameById
 alter function fn_GetEmployeeNameById(@Id int)
 returns nvarchar(20)
 with encryption
@@ -1069,3 +1069,405 @@ as begin
 end
 --uuesti vataame sisu
 sp_helptext fn_GetEmployeeNameById
+
+--muudame ülevalpool olevat funktsiooni, kindlasti tabeli ette panna dbo.Tabelinimi
+alter function fn_GetEmployeeNameById(@Id int)
+returns nvarchar(20)
+with schemabinding
+as begin
+	return (select Name from EmployeesWithDates where Id = @Id)
+end
+
+drop table dbo.EmployeesWithDates
+
+drop function fn_GetEmployeeNameById
+
+-- temporary tables
+
+--- #-märgi ette panemisel saame aru, et tegemist on temp tabeliga
+--- seda tabelit saab ainult selles päringus avdada
+create table #PersonDetails(Id int, Name nvarchar(20))
+
+insert into #PersonDetails values(1, 'Mike')
+insert into #PersonDetails values(2, 'John')
+insert into #PersonDetails values(3, 'Todd')
+
+select * from #PersonDetails
+--kuhu tekkis #PersonDetails tabel
+
+--saab vaadata k]iki tabeleid, mis on süsteemis olemas või on loodud kasutaja poolt
+select Name from sysobjects
+where Name like 'Gender'
+
+--kustutame temp tabeli
+drop table #PersonDetails
+
+create proc spCreateLocalTempTable
+as begin
+create table #PersonDetails(Id int, Name nvarchar(20))
+
+insert into #PersonDetails values(1, 'Mike')
+insert into #PersonDetails values(2, 'John')
+insert into #PersonDetails values(3, 'Todd')
+
+select * from #PersonDetails
+end
+
+exec spCreateLocalTempTable
+
+--Erinevused lokaalse ja globaalse ajutise tabeli osas:
+--1. Lokaalsed ajutised tabelid on ühe # märgiga, aga globaalsel on kaks tükki.
+--2. SQL server lisab suvalisi numbreid lokaalse ajutise tabeli nimesse, 
+--aga globaalse puhul seda ei ole.
+--3. Lokaalsed on nähtavad ainult selles sessioonis, mis on selle loonud, 
+--aga globaalsed on nähtavad kõikides sessioonides.
+--4. Lokaalsed ajutised tabelid on automaatselt kustutatud, 
+--kui selle loonud sessioon on kinni pandud, aga globaalsed 
+--ajutised tabelid lõpetatakse viimane viitav ühendus on kinni pandud.
+
+--globaalse temp tabeli tegemine e paned kaks # tabeli nime ette
+create table ##PersonDetails(Id int, Name nvarchar(20))
+
+--index
+create table EmployeeWithSalary (Id int primary key, Name nvarchar(25), Salary int, Gender nvarchar(10))
+
+insert into EmployeeWithSalary values (1, 'Sam', 2500, 'Male')
+insert into EmployeeWithSalary values (2, 'Pam', 6500, 'Female')
+insert into EmployeeWithSalary values (3, 'John', 4500, 'Male')
+insert into EmployeeWithSalary values (4, 'Sara', 5500, 'Female')
+insert into EmployeeWithSalary values (5, 'Todd', 3100, 'Male')
+
+select * from EmployeeWithSalary
+
+select * from EmployeeWithSalary
+where Salary > 5000 and Salary < 7000
+
+--loome indeksi, mis asetab palga kahanevasse järjestusse
+create index IX_Employee_Salary
+on EmployeeWithSalary (Salary asc)
+
+-- saame teada, et mis on selle tabeli primaarvõti ja index
+exec sys.sp_helpindex @objname = 'EmployeeWithSalary'
+
+select * from EmployeeWithSalary
+with (index(IX_Employee_Salary))
+
+--saame vaadata tabelit koos selle sisuga alates väga detailsest infost
+select 
+	TableName = t.name,
+	IndexName = ind.name,
+	IndexId = ind.index_id,
+	ColumnId = ic.index_column_id,
+	ColumnName = col.name,
+	ind.*,
+	ic.*,
+	col.*
+from
+	sys.indexes ind
+inner join
+	sys.index_columns ic on ind.object_id = ic.object_id and ind.index_id = ic.index_id
+inner join
+	sys.columns col on ic.object_id = col.object_id and ic.column_id = col.column_id
+inner join
+	sys.tables t on ind.object_id = t.object_id
+where
+	ind.is_primary_key = 0
+	and ind.is_unique = 0
+	and ind.is_unique_constraint = 0
+	and t.is_ms_shipped = 0
+order by
+	t.name, ind.name, ind.index_id, ic.is_included_column, ic.key_ordinal;
+
+--indeksi kustutamine
+drop index EmployeeWithSalary.IX_Employee_Salary
+
+---- indeksi tüübid:
+--1. Klastrites olevad
+--2. Mitte-klastris olevad
+--3. Unikaalsed
+--4. Filtreeritud
+--5. XML
+--6. Täistekst
+--7. Ruumiline
+--8. Veerusäilitav
+--9. Veergude indeksid
+--10. Välja arvatud veergudega indeksid
+
+-- klastris olev indeks määrab ära tabelis oleva füüsilise järjestuse 
+-- ja selle tulemusel saab tabelis olla ainult üks klastris olev indeks
+
+create table EmployeeCity
+(
+Id int primary key,
+Name nvarchar(50),
+Salary int,
+Gender nvarchar(10),
+City nvarchar(50)
+)
+
+exec sp_helpindex EmployeeCity
+
+-- andmete õige järjestuse loovad klastris olevad indeksid ja kasutab selleks Id nr-t
+-- põhjus, miks antud juhul kasutab Id-d, tuleneb primaarvõtmest
+insert into EmployeeCity values(3, 'John', 4500, 'Male', 'New York')
+insert into EmployeeCity values(1, 'Sam', 2500, 'Male', 'London')
+insert into EmployeeCity values(4, 'Sara', 5500, 'Female', 'Tokyo')
+insert into EmployeeCity values(5, 'Todd', 3100, 'Male', 'Toronto')
+insert into EmployeeCity values(2, 'Pam', 6500, 'Male', 'Sydney')
+
+-- klastris olevad indeksid dikteerivad säilitatud andmete järjestuse tabelis 
+-- ja seda saab klastrite puhul olla ainult üks
+
+select * from EmployeeCity
+
+create clustered index IX_EmployeeCity_Name
+on EmployeeCity(Name)
+
+--- annab veateate, et tabelis saab olla ainult üks klastris olev indeks
+--- kui soovid, uut indeksit luua, siis kustuta olemasolev
+
+--- saame luua ainult ühe klastris oleva indeksi tabeli peale
+--- klastris olev indeks on analoogne telefoni suunakoodile
+
+-- loome composite indeksi
+-- enne tuleb kõik teised klastris olevad indeksid ära kustutada
+create clustered index IX_Employee_Gender_Salary
+on EmployeeCity(Gender desc, Salary asc)
+--index on eemaldatud ja nüüd käivitame selle uuesti
+
+select * from EmployeeCity
+
+--Mitte klastris olev indeks
+create nonclustered index IX_EmployeeCity_Name
+on EmployeeCity(Name)
+--teeme päringu tabelile
+select * from EmployeeCity
+
+---erinevused kahe indeksi vahel
+---1. ainult üks klastris olev indeks saab olla tabeli peale,
+---mitte-klastris olevaid indekseid saab olla mitu
+---2. klastris olevad indeksid on kiiremad kuna indeks peav tagasi viitama tabelile
+---´juhul kui selekteeritud veerg ei ole olemas indeksis
+---3. Klastris olev indeks määratlev ära taveli ridade salvetusjärjestuse
+--- ja ei nõa kettal lisa ruumi. Samas mitte klastris olevad indeksid on
+--- salvestatud tavelist eraldi ja nõuab lisa ruumi
+
+create table EmployeeFirstName
+(
+	Id int primary key,
+	FirstName nvarchar(50),
+	LastName nvarchar(50),
+	Salary int,
+	Gender nvarchar(10),
+	City nvarchar(50)
+)
+
+exec sp_helpindex EmployeeFirstName
+--- ei saa sisestada kahte samasuguse Id väärtusega rida
+insert into EmployeeFirstName values(1, 'Mike', 'Sandoz', 4500, 'Male', 'New York')
+insert into EmployeeFirstName values(1, 'John', 'Menco', 2500, 'Male', 'London')
+
+--
+drop index EmployeeFirstName.PK__Employee__3214EC0758903E0C
+--- kui käivitad ülevalpool oleva koodi, siis tuleb veateade
+--- et SQL server kasutab UNIQUE indeksit jõustamaks väärtuste unikaalsust 
+--- ja primaarvõtit
+--- koodiga Unikaalseid Indekseid ei saa kustutada, aga käsitsi saab
+
+--sisestame uuesti
+insert into EmployeeFirstName values(1, 'Mike', 'Sandoz', 4500, 'Male', 'New York')
+insert into EmployeeFirstName values(1, 'John', 'Menco', 2500, 'Male', 'London')
+
+--- unikaalset indeksit kasutatakse kindlustamast väärtuste unikaalsust (SH primaarvõti)
+
+create unique nonclustered index UIX_Employee_FirstName_LastName
+on EmployeeFirstName(FirstName, Lastname)
+
+
+--lisame piirangu
+alter table EmployeeFirstName
+add constraint UQ_EmployeeFirstName_City
+unique nonclustered(City)
+
+--saab vaadata indeksite nimekirja
+exec sp_helpconstraint EmployeeFirstName
+
+delete EmployeeFirstName
+where Id = 1
+
+select * from EmployeeFirstName
+
+insert into EmployeeFirstName values(3, 'John', 'Menco', 3500, 'Male', 'Berlin')
+
+-- 1.Vaikimisi primaarvõti loob unikaalse klastris oleva indeksi, samas unikaalne piirang
+-- loob unikaalse mitte-klastris oleva indeksi
+-- 2. Unikaalset indeksit või piirangut ei saa luua olemasolevasse tabelisse, kui tabel 
+-- juba sisaldab väärtusi võtmeveerus
+-- 3. Vaikimisi korduvaid väärtusied ei ole veerus lubatud,
+-- kui peaks olema unikaalne indeks või piirang. Nt, kui tahad sisestada 10 rida andmeid,
+-- millest 5 sisaldavad korduviad andmeid, siis kõik 10 lükatakse tagasi. Kui soovin ainult 5
+-- rea tagasi lükkamist ja ülejäänud 5 rea sisestamist, siis selleks kasutatakse IGNORE_DUP_KEY
+
+create unique index IX_EmployeeFirstName
+on EmployeeFirstName(City)
+with ignore_dup_key
+
+insert into EmployeeFirstName values(3, 'John', 'Menco', 3512, 'Male', 'Madrid')
+insert into EmployeeFirstName values(4, 'John', 'Menco', 3523, 'Male', 'London1')
+insert into EmployeeFirstName values(4, 'John', 'Menco', 3520, 'Male', 'London1')
+
+select * from EmployeeFirstName
+
+---view 
+
+
+---view on salvestatud SQL-i päring. Saab käsitleda ka visrtuaalse tabelina.
+select Name, Salary, Gender, DepartmentName
+from Employees
+join Department
+on Employees.DepartmentId = Department.Id
+
+--loome view
+create view vEmployeesByDepartment
+as
+select Name, Salary, Gender, DepartmentName
+from Employees
+join Department
+on Employees.DepartmentId = Department.Id
+
+--- view päringu esile kutsumine
+select * from vEmployeesByDepartment
+
+-- view ei salvesta andmeid vaikimisi
+-- seda tasub võtta, kui salvestatud virtuaalse tabelina
+
+-- milleks vaja:
+-- saab kasutada andmebaasi skeemi keerukuse lihtsutamiseks,
+-- mitte IT-inimesele
+-- piiratud ligipääs andmetele, ei näe kõiki veerge
+
+-- teeme view, kus näeb ainult IT-töötajaid
+-- view nimi on vITEmployeesInDepartment
+--kasutame tabeleid Employees ja Department
+create view vITEmployeesInDepartment
+as
+select Name, Salary, Gender, DepartmentName
+from Employees
+join Department
+on Employees.DepartmentId = Department.Id
+where Department.DepartmentName = 'IT'
+-- ülevalpool olevat päringut saab liigitada reataseme turvalisuse alla
+-- tahan ainult näidata IT osakonna töötajaid
+
+select * from vITEmployeesInDepartment
+
+-- veeru taseme turvalisus
+-- peale selecti määratled veergude näitamise ära
+create view vEmployeesInDepartmentSalaryNoShow
+as
+select Name, Gender, DepartmentName
+from Employees
+join Department
+on Employees.DepartmentId = Department.Id
+
+select * from vEmployeesInDepartmentSalaryNoShow
+
+-- saab kasutada koondandmete esitlemist ja üksikasjalike andmeid
+-- view, mis tagastab summeeritud andmeid
+create view vEmployeesCountByDepartment
+as
+select DepartmentName, count(Employees.Id) as TotalEmployees
+from Employees
+join Department
+on Employees.DepartmentId = Department.Id
+group by DepartmentName
+
+select * from vEmployeesCountByDepartment
+
+-- kui soovid vaadata view sisu
+sp_helptext vEmployeesCountByDepartment
+-- muuta saab alter käsuga
+-- kustutada saab drop käsuga
+
+--view, mida kasutame andmete uuendamiseks
+create view vEmployeesDataExceptSalary
+as
+select Id, Name, Gender, DepartmentId
+from Employees
+
+--kasutame seda view-d, et uuendada andmeid
+--muuta Id 2 all olev eesnimi Tom-ks
+update vEmployeesDataExceptSalary
+set Name = 'Tom' where Id = 2
+
+--
+alter view vEmployeesDataExceptSalary
+as
+select Id, Name, Gender, DepartmentId
+from Employees
+
+-- kustutame andmeid ja kasutame seda viewd: vEmployeesDataExceptSalary
+-- Id 2 all olevad andmed
+delete vEmployeesDataExceptSalary where Id = 2
+--nüüd lisame andmed
+insert into vEmployeesDataExceptSalary (Id, Gender, DepartmentId, Name)
+values(2, 'Female', 2, 'Pam')
+
+-- indekseeritud view
+-- MS SQL-s on indekseeritud view nime all ja 
+-- Oracle-s materjaliseeritud view
+create table product
+(
+Id int primary key,
+Name nvarchar(20),
+UnitPrice int
+)
+
+insert into Product values (1, 'Books', 20)
+insert into Product values (2, 'Pens', 14)
+insert into Product values (3, 'Pencils', 11)
+insert into Product values (4, 'Clips', 10)
+
+create table ProductSales
+(
+Id int,
+QuantitySold int
+)
+
+insert into ProductSales values(1, 10),
+(3, 23),
+(4, 21),
+(2, 12),
+(1, 13),
+(3, 12),
+(4, 13),
+(1, 11),
+(2, 12),
+(1, 14)
+
+--loome view, mis annab meile veerud TotalSales ja TotalTransaction
+create view vTotalSalesByProduct
+with schemabinding
+as
+select Name,
+sum(isnull((QuantitySold * UnitPrice), 0)) as TotalSales,
+COUNT_BIG(*) as TotalTransactions
+from dbo.ProductSales
+join dbo.Product
+on dbo.Product.Id = ProductSales.Id
+group by Name
+
+--- kui soovid luua indeksi view sisse, siis peab järgima teatud reegleid
+-- 1. view tuleb luua koos schemabinding-ga
+-- 2. kui lisafunktsioon select list viitab väljendile ja selle tulemuseks
+-- võib olla NULL, siis asendusväärtus peaks olema täpsustatud. 
+-- Antud juhul kasutasime ISNULL funktsiooni asendamaks NULL väärtust
+-- 3. kui GroupBy on täpsustatud, siis view select list peab
+-- sisaldama COUNT_BIG(*) väljendit
+-- 4. Baastabelis peaksid view-d olema viidatud kaheosalise nimega
+-- e antud juhul dbo.Product ja dbo.ProductSales.
+
+select * from vTotalSalesByProduct
+
+create unique clustered index UIX_TotalSalesByProduct_Name
+on vTotalSalesByProduct(Name)
