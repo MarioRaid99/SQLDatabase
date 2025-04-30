@@ -1712,4 +1712,263 @@ end
 -- (nr 16 tähendab üldiseid vigu),
 -- kolmas on olek
 
---
+select * from Employee
+
+delete from Employee where Id = 6
+
+update vEmployeeDetails
+set Name = 'Johny', DepartmentName = 'IT'
+where Id = 1
+--ei saa uuendada andmeid kuna mitu tabelit on sellest mõjutatud
+
+update vEmployeeDetails
+set DepartmentName = 'IT'
+where Id = 1
+--nüüd saab uuendada kuna kuna ainult ühes tabelis tahame muuta andmeid
+
+select * from vEmployeeDetails
+
+create trigger tr_vEmployeeDetails_InsteadOfUpdate
+on vEmployeeDetails
+instead of update
+as begin
+
+	if(update(Id))
+	begin
+		raiserror('Id cannot be changed', 16, 1)
+		return
+	end
+
+	if(update(DepartmentName))
+	begin
+		declare @DeptId int
+		select @DeptId = Department.Id
+		from Department
+		join inserted
+		on inserted.DepartmentName = Department.DepartmentName
+
+		if(@DeptId is null)
+		begin
+			raiserror('Invalid Department Name', 16, 1)
+			return
+		end
+
+		update Employee set DepartmentId = @DeptId
+		from inserted
+		join Employee
+		on Employee.Id = inserted.id
+	end
+
+	if(update(Gender))
+	begin
+		update Employee set Gender = inserted.Gender
+		from inserted
+		join Employee
+		on Employee.Id = inserted.id
+	end
+
+	if(update(Name))
+	begin
+		update Employee set Name = inserted.Name
+		from inserted
+		join Employee
+		on Employee.Id = inserted.id
+	end
+end
+
+--nüüd saame mitmes tabelis korraga muuta andmeid
+update Employee set Name = 'John123', Gender = 'Male', DepartmentId = 3
+where Id = 1
+
+select * from vEmployeeDetails
+
+-- delete trigger
+create view vEmployeeCount
+as
+select DepartmentId, DepartmentName, count(*) as TotalEmployees
+from Employee
+join Department
+on Employee.DepartmentId = Department.Id
+group by DepartmentName, DepartmentId
+
+select * from vEmployeeCount
+
+---tahan näha ainult neid osakonndasi, kus on töötajaid 2tk või rohkem
+select  DepartmentName, TotalEmployees from vEmployeeCount
+where TotalEmployees >= 2
+
+select DepartmentName, DepartmentId, count(*) as TotalEmployees
+into #TempEmployeeCount
+from Employee
+join Department
+on Employee.DepartmentId = Department.Id
+group by DepartmentName, DepartmentId
+
+select * from #TempEmployeeCount
+
+select  DepartmentName, TotalEmployees 
+from #TempEmployeeCount
+where TotalEmployees >= 2
+
+create view vEmployeeDetails
+as
+select Employee.Id, Name, Gender, DepartmentName
+from Employee
+join Department
+on Employee.DepartmentId = Department.Id
+
+create trigger trEmployeeDetails_InsteadOfDelete
+on vEmployeeDetails
+instead of delete
+as begin
+delete Employee
+from Employee
+join deleted
+on Employee.Id = deleted.Id
+end
+
+delete from vEmployeeDetails where Id = 2
+
+select * from Employee
+
+-- päritud tabelid ja CTE
+-- CTE tähendab common table expression
+
+insert into Employee values(2, 'Mike', 'Male',2)
+--CTE
+--- CTE-d võivad sarnaneda temp table-ga
+-- sarnane päritud tabelile ja ei ole salvestatud objektina
+-- ning kestab päringu ulatuses
+
+with EmployeeCount(DepartmentName, DepartmentId, TotalEmployees)
+as
+	(
+	select DepartmentName, DepartmentId, count(*) as TotalEmployees
+	from Employee
+	join Department
+	on Employee.DepartmentId = Department.Id
+	group by DepartmentName, DepartmentId
+	)
+select DepartmentName, TotalEmployees
+from EmployeeCount
+where TotalEmployees >= 2
+
+--mitu CTE-d järjest
+with EmployeeCountBy_Payroll_IT_Dept(DepartmentName, Total)
+as
+(
+	select DepartmentName, count(Employee.Id) as TotalEmployees
+	from Employee
+	join Department
+	on Employee.DepartmentId = Department.Id
+	where DepartmentName in('Payroll', 'IT')
+	group by DepartmentName
+),
+--peale koma panemist saad uue CTE juurde kirjutada
+EmployeeCountBy_HR_Admin_Dept(DepartmentName, Total)
+as
+(
+	select DepartmentName, count(Employee.Id) as TotalEmployees
+	from Employee
+	join Department
+	on Employee.DepartmentId = Department.Id
+	group by DepartmentName
+)
+--kui on kaks CTE-d, siis unioni abil ühendada päringud
+select * from EmployeeCountBy_Payroll_IT_Dept
+union
+select * from EmployeeCountBy_HR_Admin_Dept
+
+---
+with EmployeeCount(DepartmentId, TotalEmployees)
+as
+	(
+	select DepartmentId, count(*) as TotalEmployees
+	from Employee
+	group by DepartmentId
+	)
+---select 'Hello'
+--- peale CTE-d peab kohe tulema käsklus SELECT, INSERT, UPDATE või DELETE
+--- kui proovid midagi muud, siis tuleb veateade
+select DepartmentName, TotalEmployees
+from Department
+join EmployeeCount
+on Department.Id = EmployeeCount.DepartmentId
+order by TotalEmployees
+
+--- uuendamine CTE-s
+--- loome lihtsa CTE
+with Employees_Name_Gender
+as
+(
+	select Id, Name, Gender from Employee
+)
+select * from Employees_Name_Gender
+
+-- uuendame andmeid läbi CTE
+-- kasutame CTEd: Employees_Name_Gender
+-- muudame Id ühe all oleva isiku sugu Female peale
+with Employees_Name_Gender
+as
+(
+	select Id, Name, Gender from Employee
+)
+update Employees_Name_Gender set Gender = 'Male' where Id = 1
+
+select * from Employee
+
+-- kasutame joini CTE tegemisel
+with EmployeesByDepartment
+as
+(
+select Employee.Id, Name, Gender, DepartmentName
+from Employee
+join Department
+on Department.Id = Employee.DepartmentId
+)
+select * from EmployeesByDepartment
+
+-- kasutame joini ja muudame ühes tabelis andmeid
+with EmployeesByDepartment
+as
+(
+select Employee.Id, Name, Gender, DepartmentName
+from Employee
+join Department
+on Department.Id = Employee.DepartmentId
+)
+update EmployeesByDepartment set Gender = 'female' where Id = 1
+
+-- kasutame joini ja muudame mõlemas tabelis andmeid
+with EmployeesByDepartment
+as
+(
+select Employee.Id, Name, Gender, DepartmentName
+from Employee
+join Department
+on Department.Id = Employee.DepartmentId
+)
+update EmployeesByDepartment set Gender = 'Male', DepartmentName = 'HR'
+where Id = 1
+--ei luba mitmes tabelis andmeid korraga muuta
+with EmployeesByDepartment
+as
+(
+select Employee.Id, Name, Gender, DepartmentName
+from Employee
+join Department
+on Department.Id = Employee.DepartmentId
+)
+update EmployeesByDepartment set DepartmentName = 'HR'
+where Id = 1
+--- kokkuvõte CTE-st
+-- 1. kui CTE baseerub ühel tabelil, siis uuendus töötab
+-- 2. kui CTE baseerub mitmel tablil, siis tuleb veateade
+-- 3. kui CTE baseerub mitmel tabelil ja tahame muuta ainult ühte tabelit, siis
+-- uuendus saab tehtud
+
+
+-- korduv CTE
+--- CTE, mis iseendale viitab, kutsutakse korduvaks CTE-ks
+--- kui tahad andmeid näidata hierarhiliselt
+
