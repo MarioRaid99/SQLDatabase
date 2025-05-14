@@ -2101,3 +2101,214 @@ insert into ProductSalesWithId values(18,'Tom', 'UK', 480)
 insert into ProductSalesWithId values(19,'John', 'UK', 360)
 insert into ProductSalesWithId values(20,'David', 'UK', 140)
 
+
+select SalesAgent, India, US, UK
+from ProductSalesWithId
+pivot
+(
+	sum(SalesAmount) for SalesCountry in ([India], [US], [UK])
+)
+as PivotTable
+-- p]hjuseks, miks näitab NULL-e, et on olemas Id veerg, mida 
+-- võetakse arvesse pööramise ja grupeerimise järgi
+select SalesAgent, India, US, UK
+from
+(
+	select SalesAgent, SalesCountry, SalesAmount from ProductSalesWithId
+)
+as SourceTable
+pivot
+(
+	sum(SalesAmount) for SalesCountry in ([India], [US], [UK])
+)
+as PivotTable
+
+--teha UNPIVOT iseseisvalt
+select Id, FromAgentOrCountry, CountryOrAgent
+from
+(
+	select Id, SalesAgent, SalesCountry, SalesAmount
+	from ProductSalesWithId
+) as SourceTable
+unpivot
+(
+	CountryOrAgent for FromAgentOrCountry in (SalesAgent, SalesCountry)
+)
+as PivotTable
+
+--transactionid
+-- transaction jälgib järgmisi samme:
+-- 1. selle algus
+-- 2. käivitatakse DB käske
+-- 3. kontrollib vigu. Kui on viga, siis taastab algse oleku
+
+create table MailingAddress
+(
+	Id int not null primary key,
+	EmployeeNumber int,
+	HouseNumber nvarchar(50),
+	StreetAddress nvarchar(50),
+	City nvarchar(10),
+	PostalCode nvarchar(20)
+)
+
+insert into MailingAddress
+values(1, 101, '#10', 'King Street', 'London', 'CR27DW')
+
+
+create table PhysicalAddress
+(
+	Id int not null primary key,
+	EmployeeNumber int,
+	HouseNumber nvarchar(50),
+	StreetAddress nvarchar(50),
+	City nvarchar(10),
+	PostalCode nvarchar(20)
+)
+
+insert into PhysicalAddress
+values(1, 101, '#10', 'King Street', 'Londoon', 'CR27DW')
+
+create proc spUpdateAddress
+as begin
+	begin try
+		begin transaction
+			update MailingAddress set City = 'LONDON'
+			where MailingAddress.Id = 1 and EmployeeNumber = 101
+
+			update PhysicalAddress set City = 'LONDON'
+			where PhysicalAddress.Id = 1 and EmployeeNumber = 101
+		commit transaction
+	end try
+	begin catch
+		rollback tran
+	end catch
+end
+
+--käivitame sp
+spUpdateAddress
+
+select * from MailingAddress
+select * from PhysicalAddress
+
+--muudame sp nimega spUpdateAddress
+alter proc spUpdateAddress
+as begin
+	begin try
+		begin transaction
+			update MailingAddress set City = 'LONDON 12'
+			where MailingAddress.Id = 1 and EmployeeNumber = 101
+
+			update PhysicalAddress set City = 'LONDON LONDON'
+			where PhysicalAddress.Id = 1 and EmployeeNumber = 101
+		commit transaction
+	end try
+	begin catch
+		rollback tran
+	end catch
+end
+--käivitame sp
+spUpdateAddress
+
+select * from MailingAddress
+select * from PhysicalAddress
+
+-- kui teine uuendus ei lähe läbi, siis esimene ei lähe ka läbi
+-- kõik uuendused peavad läbi minema
+
+--- transaction ACID test
+
+-- edukas transaction peab läbima ACID testi:
+-- A - atomic e aatomlikus
+-- C - consistent e järjepidevus
+-- I - isolated e isoleeritus
+-- D - durable e vastupidav
+
+--- Atomic - kõik tehingud transactionis on kas edukalt täidetud või need 
+-- lükatakse tagasi. Nt, mõlemad käsud peaksid alati õnnesutma. Andmebaas 
+-- teeb sellisel juhul: võtab esimese update tagasi ja veeretab selle algasendisse
+-- e taastab algsed andmed
+
+--- Consistent - kõik transactioni puudutavad andmed jäetakse loogiliselt 
+-- järjepidevasse olekusse. Nt, kui laos saadaval olevaid esemete hulka 
+-- vähendatakse, siis tabelis peab olema vastav kanne. Inventuur ei saa
+-- lihtsalt kaduda
+
+--- Isolated - transaction peab andmeid mõjutama, sekkumata teistesse
+-- samaaegsetesse transactionitesse. See takistab andmete muutmist, mis 
+-- põhinevad sidumata tabelitel. Nt, muudatused kirjas, mis hiljem tagasi 
+-- muudetakse. Enamik DB-d kasutab tehingute isoleerimise säilitamiseks 
+-- lukustamist
+
+--- Durable - kui muudatus on tehtud, siis see on püsiv. Kui süsteemiviga või
+-- voolukatkestus ilmneb enne käskude komplekti valmimist, siis tühistatkse need 
+-- käsud ja andmed taastakse algsesse olekusse. Taastamine toimub peale 
+-- süsteemi taaskäivitamist.
+
+-- subqueries
+-- tabel tühjaks
+truncate table Product
+truncate table ProductSales
+
+create table Product
+(
+	Id int identity primary key,
+	Name nvarchar(50),
+	Description nvarchar(250)
+)
+
+create table ProductSales
+(
+Id int primary key identity,
+ProductId int foreign key references Product(Id),
+UnitPrice int,
+QuantitySold int
+)
+
+insert into Product values ('TV', '52 inch black color LCD TV')
+insert into Product values ('Laptop', 'Very thin black color laptop')
+insert into Product values ('Desktop', 'HP high performance desktop')
+
+--SET IDENTITY_INSERT Product ON
+
+insert into ProductSales values(3, 450, 5)
+insert into ProductSales values(2, 250, 7)
+insert into ProductSales values(3, 450, 4)
+insert into ProductSales values(3, 450, 9)
+
+select * from Product
+select * from ProductSales
+
+-- kirjutame päringu, mis annab infot müümata toodetest
+select Id, Name, Description
+from Product
+where Id not in (select distinct ProductId from ProductSales)
+
+--enamus juhtudel saab subquerist asendada JOIN-ga
+--teeme sama päringu JOIN-ga
+select Product.Id, Name, Description
+from Product
+left join ProductSales
+on Product.Id = ProductSales.ProductId
+where ProductSales.ProductId is null
+
+-- teeme subqueri, kus kasutame select-i. Kirjutame päringu, kus
+-- saame teada NAME ja TotalQuantity veeru andemeid
+
+select Name,
+(select sum(QuantitySold) from ProductSales where ProductId = Product.Id) as
+[Total Quantity]
+from Product
+order by Name
+
+--sama tulemus teha left joiniga
+select Name, SUM(QuantitySold) as TotalQuantity
+from Product
+left join ProductSales
+on Product.Id = ProductSales.ProductId
+group by Name
+order by Name
+
+--- subqueryt saab subquery sisse panna
+-- subquerid on alati sulgudes ja neid nimetatakse sisemisteks päringuteks
+
