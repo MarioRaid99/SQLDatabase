@@ -2309,6 +2309,150 @@ on Product.Id = ProductSales.ProductId
 group by Name
 order by Name
 
---- subqueryt saab subquery sisse panna
+---- subqueryt saab subquery sisse panna
 -- subquerid on alati sulgudes ja neid nimetatakse sisemisteks päringuteks
 
+truncate table Product
+truncate table ProductSales
+
+drop table Product
+drop table ProductSales
+
+create table Product
+(
+Id int identity primary key,
+Name nvarchar(50),
+Description nvarchar(250)
+)
+
+create table ProductSales
+(
+Id int primary key identity,
+ProductId int foreign key references Product(Id),
+UnitPrice int,
+QuantitySold int
+)
+
+--sisestame näidisandmed Product tabelisse:
+declare @Id int
+set @Id = 1
+while(@Id <= 150000)
+begin
+	insert into Product values('Product - ' + cast(@Id as nvarchar(20)),
+	'Product - ' + cast(@Id as nvarchar(20)) + ' Description')
+
+	print @Id
+	set @Id = @Id + 1
+end
+
+declare @RandomProductId int
+declare @RandomUnitPrice int
+declare @RandomQuantitySold int
+
+--ProductId
+declare @LowerLimitForProductId int
+declare @UpperLimitForProductId int
+
+set @LowerLimitForProductId = 1
+set @UpperLimitForProductId = 1000000
+
+--unit price
+declare @LowerLimitForUnitPrice int
+declare @UpperLimitForUnitPrice int
+
+set @LowerLimitForUnitPrice = 1
+set @UpperLimitForUnitPrice = 1000
+
+--QuantitySold
+declare @LowerLimitForQuantitySold int
+declare @UpperLimitForQuantitySold int
+
+set @LowerLimitForQuantitySold = 1
+set @UpperLimitForQuantitySold = 10
+
+declare @Counter int
+set @Counter = 1
+
+while(@Counter < 20000000)
+begin
+	select @RandomProductId = round(((@UpperLimitForProductId -
+	@LowerLimitForProductId) * Rand() + @LowerLimitForProductId), 0)
+
+	select @RandomUnitPrice = round(((@UpperLimitForUnitPrice -
+	@LowerLimitForUnitPrice) * Rand() + @LowerLimitForUnitPrice), 0)
+
+	select @RandomQuantitySold = round(((@UpperLimitForQuantitySold -
+	@LowerLimitForQuantitySold) * Rand() + @LowerLimitForQuantitySold), 0)
+
+	insert into ProductSales
+	values(@RandomProductId, @RandomUnitPrice, @RandomQuantitySold)
+
+	print @Counter
+	set @Counter = @Counter + 1
+end
+
+select * from Product
+select * from ProductSales
+
+--võrdleme subquerit ja JOIN-i
+select Id, Name, Description
+from Product
+where Id in
+(
+select Product.Id from ProductSales
+)
+--10761270	rida 50sek
+
+--teeme cache puhtaks, et uut päringut ei oleks kuskile vahemällu salvestatud
+checkpoint;
+go
+dbcc DROPCLEANBUFFERS; --puhastab päringu cache-i
+go
+dbcc FREEPROCCACHE; --puhastab täitva planeeritud cache-i
+go
+
+--teeme sama tabeli peale inner join päringu
+select distinct Product.Id, Name, Description
+from Product
+inner join ProductSales
+on Product.Id = ProductSales.ProductId
+-- sain 893816 rida 8 sekundiga
+-- teeme vahemälu puhtaksa
+
+--CURSOR-d
+
+--- relatsiooniliste DB-de haldussüsteemid saavad väga hästi hakkama 
+--- SETS-ga. SETS lubab mitut päringut kombineerida üheks tulemuseks.
+--- Sinna alla käivad UNION, INTERSECT ja EXCEPT. 
+
+update ProductSales set UnitPrice = 50
+where ProductSales.ProductId = 101
+
+--- kui on vaja rea kaupa andmeid töödelda, siis kõige parem oleks kasutada 
+--- Cursoreid. Samas on need jõudlusele halvad ja võimalusel vältida. 
+--- Soovitav oleks kasutada JOIN-i.
+
+-- Cursorid jagunevad omakorda neljaks:
+-- 1. Forward-Only e edasi-ainult
+-- 2. Static e staatilised
+-- 3. Keyset e võtmele seadistatud
+-- 4. Dynamic e dünaamiline
+
+--Cursori näide:
+if the ProductName = 'Product - 55', set UnitPrice to 55
+
+--nüüd algab õige cursor
+------------------------
+declare @ProductId int
+--deklareerime cursori
+declare ProductIdCursor cursor for
+select ProductId from ProductSales
+-- open avaldusega täidab select avaldust
+-- ja sisestab tulemuse
+open ProductIdCursor
+
+fetch next from ProductIdCursor into @ProductId
+--kui tulemuses on veel ridu, siis @@FETCH_STATUS on 0
+
+--rida 2574
+--tund 12
