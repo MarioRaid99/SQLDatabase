@@ -2336,7 +2336,7 @@ QuantitySold int
 --sisestame näidisandmed Product tabelisse:
 declare @Id int
 set @Id = 1
-while(@Id <= 150000)
+while(@Id <= 1500)
 begin
 	insert into Product values('Product - ' + cast(@Id as nvarchar(20)),
 	'Product - ' + cast(@Id as nvarchar(20)) + ' Description')
@@ -2354,7 +2354,7 @@ declare @LowerLimitForProductId int
 declare @UpperLimitForProductId int
 
 set @LowerLimitForProductId = 1
-set @UpperLimitForProductId = 1000000
+set @UpperLimitForProductId = 1000
 
 --unit price
 declare @LowerLimitForUnitPrice int
@@ -2373,7 +2373,7 @@ set @UpperLimitForQuantitySold = 10
 declare @Counter int
 set @Counter = 1
 
-while(@Counter < 20000000)
+while(@Counter < 2000)
 begin
 	select @RandomProductId = round(((@UpperLimitForProductId -
 	@LowerLimitForProductId) * Rand() + @LowerLimitForProductId), 0)
@@ -2456,3 +2456,683 @@ fetch next from ProductIdCursor into @ProductId
 
 --rida 2574
 --tund 12
+while(@@FETCH_STATUS = 0)
+begin
+	declare @ProductName nvarchar(50)
+	select @ProductName = Name from Product where Id = @ProductId
+
+	if(@ProductName = 'Product - 55')
+	begin
+		update ProductSales set UnitPrice = 55 where ProductId = @ProductId
+	end
+
+	else if(@ProductName = 'Product - 65')
+	begin
+		update ProductSales set UnitPrice = 65 where ProductId = @ProductId
+	end
+
+	else if(@ProductName = 'Product - 1000')
+	begin
+		update ProductSales set UnitPrice = 1000 where ProductId = @ProductId
+	end
+
+	fetch next from ProductIdCursor into @ProductId
+end
+--vabastab rea seadistuse e suleb cursori
+close ProductIdCursor
+-- vabastab ressursid, mis on seotud cursoriga
+deallocate ProductIdCursor
+
+-- vaatame, kas read on uuendatud
+-- kasutate selleks join ja where: Product - 55, Product - 65, Product - 1000
+select Name, UnitPrice
+from Product join 
+ProductSales on Product.Id = ProductSales.ProductId
+where(Name = 'Product - 55' or Name = 'Product - 65' or Name = 'Product - 1000')
+
+-- asendame cursorid joiniga
+update ProductSales
+set UnitPrice = 
+	case 
+		when Name = 'Product - 55' then 155
+		when Name = 'Product - 65' then 165
+		when Name like 'Product - 1000' then 10001
+	end
+from ProductSales
+join Product 
+on Product.Id = ProductSales.ProductId
+where Name = 'Product - 55' or Name = 'Product - 65' or
+Name like 'Product - 1000'
+
+-- vaatame tulemust uuesti
+select Name, UnitPrice
+from Product join 
+ProductSales on Product.Id = ProductSales.ProductId
+where(Name = 'Product - 55' or Name = 'Product - 65' or Name = 'Product - 1000')
+
+--tabelite info
+-- nimekiri tabelitest
+select * from SYSOBJECTS where xtype = 'C'
+
+-- IT - internal table
+-- P - stored procedure
+-- PK - primary key constraint
+-- S - system table
+-- SQ - service queue
+-- U - user table
+-- V - view
+
+select * from sys.tables
+-- nimekiri tabelitest ja view-st
+select * from INFORMATION_SCHEMA.TABLES
+
+--kui soovid erinevaid objektitüüpe vaadata, siis kasuta XTYPE süntaksit
+select distinct XTYPE from sysobjects
+
+-- annab teada, kas selle nimega tabel on juba olemas
+if not exists (select * from INFORMATION_SCHEMA.TABLES where TABLE_NAME = 'Employee123')
+begin
+	create table Employee123
+	(
+	Id int primary key,
+	Name nvarchar(30),
+	ManagerId int
+	)
+		print 'Table Employee123 created'
+	end
+	else
+	begin
+		print 'Table Employee already exists'
+	end
+
+--- saab kasutada ka sisseehitatud funktsiooni: OBJECT_ID()
+if OBJECT_ID('Employee') is null
+begin
+	--siia saab lisada tabeli tegemise koodi
+	print 'Table created'
+end
+else
+begin
+	print 'Table already exists'
+end
+
+-- tahame sama nimega tabelit ära kustutada ja siis uuesti luua
+-- kasutame selleks OBJECT_ID
+
+if OBJECT_ID('Employee') is not null
+begin
+	drop table Employee
+end
+create table Employee
+(
+Id int primary key,
+Name nvarchar(30),
+ManagerId int
+)
+
+alter table Employee
+add Email nvarchar(50)
+
+-- kui teha uuesti veeru kontrollimist ja loomist
+if not exists(select * from INFORMATION_SCHEMA.COLUMNS where
+COLUMN_NAME = 'Email' and TABLE_NAME = 'Employee' and TABLE_SCHEMA = 'dbo')
+begin
+	alter table Employee
+	add Email nvarchar(50)
+end
+else
+begin
+	print 'Column already exists'
+end
+
+--kontrollime, kas mingi nimega veerg on olemas
+if COL_LENGTH('Employee', 'Email') is not null
+begin
+	print 'Column already exists'
+end
+else
+begin
+	print 'Column does not exists'
+end
+
+---- MERGE
+--- tutvustati aastal 2008, mis lubab teha sisestamist, uuendamist ja kustutamist
+--- ei pea kasutama mitut käsku
+
+-- merge puhul peab alati olema vähemalt kaks tabelit:
+-- 1. algallika tabel e source table
+-- 2. sihtmärk tabel e target table
+
+-- ühendab sihttabeli lähtetabeliga ja kasutab mõlemas tabelis ühist veergu
+-- koodinäide:
+merge [TARGET] as T
+using [SOURCE] as S
+	on [JOIN_CONDITIONS]
+when matched then
+	[UPDATE_STATEMENT]
+when not matched by target then
+	[INSERT_STATEMENT]
+when not matched by source then
+	[DELETE_STATEMENT]
+
+create table StudentSource
+(
+Id int primary key,
+Name nvarchar(20)
+)
+go
+insert into StudentSource values(1, 'Mike')
+insert into StudentSource values(2, 'Sara')
+go
+create table StudentTarget
+(
+Id int primary key,
+Name nvarchar(20)
+)
+go
+insert into StudentTarget values(1, 'Mike M')
+insert into StudentTarget values(3, 'John')
+go
+
+-- 1. kui leitakse klappiv rida, siis StudentTarget tabel on uuendatud
+-- 2. kui read on StudentSource tabelis olemas, aga neid ei ole StudentTarget-s,
+-- siis puuduolevad read sisestatakse 
+-- 3. kui read on olemas StudentTarget-s, aga mitte StudentSource-s, siis StudentTarget
+-- tabelis read kustutatakse ära
+merge StudentTarget as T
+using StudentSource as S
+on T.Id = S.Id
+when matched then
+	update set T.Name = S.Name
+when not matched by target then
+	insert (Id, Name) values(S.Id, S.Name)
+when not matched by source then
+	delete;
+
+select * from StudentTarget
+select * from StudentSource
+
+-- tabelid tühjaks teha
+truncate table StudentTarget
+truncate table StudentSource
+
+insert into StudentSource values(1, 'Mike')
+insert into StudentSource values(2, 'Sara')
+go
+insert into StudentTarget values(1, 'Mike M')
+insert into StudentTarget values(3, 'John')
+go
+
+merge StudentTarget as T
+using StudentSource as S
+on T.Id = S.Id
+when matched then
+	update set T.Name = S.Name
+when not matched by target then
+	insert (Id, Name) values(S.Id, S.Name);
+
+select * from StudentTarget
+select * from StudentSource
+
+--- transaction-d
+
+-- mis see on?
+-- on rühm käske, mis muudavad DB-s salvestatud andmeid. Tehingut käsitletakse
+-- ühe tööüksusena. Kas kõik käsud õnnestuvad või mitte. 
+-- Kui üks tehing sellest ebaõnnestub,
+-- siis kõik juba muudetud andmed muudetakse tagasi.
+
+create table Account
+(
+Id int primary key,
+AccountName nvarchar(25),
+Balance int
+)
+
+insert into Account values(1, 'Mark', 1000)
+insert into Account values(2, 'Mary', 1000)
+
+--transaction
+-- mõlemad uuendatavad käsud saavad ära tehtud
+
+begin try
+	begin transaction
+		update Account set Balance = Balance - 100 where Id = 1
+		update Account set Balance = Balance + 100 where Id = 2
+	commit transaction
+	print 'Transaction Commited'
+end try
+begin catch
+	rollback tran
+	print 'Transaction rolled back'
+end catch
+
+select * from Account
+
+--- mõned levinumad probleemid:
+-- 1. Dirty read e must lugemine
+-- 2. Lost Updates e kadunud uuendused
+-- 3. Nonreapeatable reads e kordumatud lugemised
+-- 4. Phantom read e fantoom lugmine
+
+--- kõik eelnevad probleemid lahendaks ära, kui lubaksite igal ajal 
+--- korraga ühel kasutajal ühe tehingu teha. Selle tulemusel kõik tehingud
+--- satuvad järjekorda ja neil võib tekkida vajadus kaua oodata, enne
+--- kui võimalus tehingut teha saabub.
+
+--- kui lubada samaaegselt kõik tehingud ära teha, siis see omakorda tekitab probleeme
+--- Probleemi lahendamiseks pakub MSSQL server erinevaid tehinguisolatsiooni tasemeid,
+--- et tasakaalustada samaaegsete andmete CRUD(create, read, update ja delete) probleeme:
+
+-- 1. read uncommited e lugemine ei ole teostatud
+-- 2. read commited e lugemine tehtud
+-- 3. repeatable read e korduv lugemine
+-- 4. snapshot e kuvatõmmis
+-- 5. serializable e serialiseerimine
+
+--- igale juhtumile tuleb läheneda juhtumipõhiselt ja
+--- mida vähem valet lugemist tuleb, seda aeglasem
+
+--dirty read näide
+create table Inventory
+(
+Id int identity primary key,
+Product nvarchar(100),
+ItemInStock int
+)
+go
+insert into Inventory values('iPhone', 10)
+select * from Inventory
+
+-- 1 käskluse
+-- 1 transaction
+begin tran
+update Inventory set ItemInStock = 9 where Id = 1
+--kliendile tuleb arve
+waitfor delay '00:00:15'
+--ebapiisav saldojääk, teeb rollback-i
+rollback tran
+
+-- 2. käsklus
+-- samal ajal tegin uue päringuga akna,
+-- kus kohe peale esimest käsklust käivitan
+-- teise
+-- 2 transaction
+set tran isolation level read uncommitted
+select * from Inventory where Id = 1
+
+-- 3 käsklus
+-- nüüd panen selle käskluse tööle
+-- käivitada, kui käsklus 1 on möödas
+select * from Inventory (nolock) 
+where Id = 1
+
+-- lost update probleem
+
+select * from Inventory
+
+set tran isolation level repeatable read
+-- 1 transaction
+begin tran
+declare @ItemúInStock int
+
+select @ItemsInStock = ItemInStock
+from Inventory where Id = 1
+
+waitfor delay '00:00:10'
+set @ItemsInStock = @ItemsInStock - 1
+
+update Inventory
+set ItemInStock = @ItemsInStock 
+where Id = 1
+
+print @ItemsInStock
+commit transaction
+
+-- 2 käsklus
+-- samal ajal panen teise transactioni tööle
+-- teisest päringust
+set tran isolation level repeatable read
+begin tran
+declare @ItemsInStock int
+
+select @ItemsInStock = ItemInStock
+from Inventory where Id = 1
+
+waitfor delay '00:00:01'
+set @ItemsInStock = @ItemsInStock - 2
+
+update Inventory
+set ItemInStock = @ItemsInStock where Id = 1
+
+print @ItemsInStock
+commit tran
+
+--- non repeatable read näide
+
+--- see juhtub, kui üks transaction loeb samu andmeid kaks korda
+--- ja teine transaction uuendab neid andmeid esimese ning 
+--- teise käsu vahel esimese transactioni jooksutamise ajal
+
+-- 1 transaction
+begin tran
+select ItemInStock from Inventory
+where Id = 1
+
+waitfor delay '00:00:10'
+
+select ItemInStock from Inventory
+where Id = 1
+commit tran
+
+-- panen nüüd tran 2 käima
+update Inventory set ItemInStock = 5
+where Id = 1
+
+
+-- panen nüüd tran 2 käima
+update Inventory set ItemInStock = 5
+where Id = 1
+--- non repeatable read probleemi lahendamiseks kasutatakse tran 1 ees:
+--- set tran isolation level repeatable read
+
+--- phantom read näide
+create table Employee
+(
+Id int primary key,
+Name nvarchar(25)
+)
+
+insert into Employee values(1, 'Mark')
+insert into Employee values(3, 'Sara')
+insert into Employee values(100, 'Mary')
+
+-- tran 1
+set tran isolation level serializable
+
+begin tran
+select * from Employee where Id between 1 and 3
+
+waitfor delay '00:00:10'
+select * from Employee where Id between 1 and 3
+commit tran
+
+-- 2 käsklus
+insert into Employee
+values(2, 'Marcus')
+
+--- vastuseks tuleb: Mark ja Sara. Marcust ei näita, aga peaks
+--- erinevus korduvlugemisega ja serialiseerimisega
+-- korduv lugemine hoiab ära ainult kordumatud lugemised
+-- serialiseerimine hoiab ära kordumatud lugemised ja
+-- phantom read probleemid
+-- isolatsioonitase tagab, et ühe tehingu loetud andmed ei 
+-- takistaks muid transactioneid
+
+-- rida 3001
+-- tund 14 22.05.2025
+
+-- DEADLOCK
+-- kui andmebaasis tekkib ummikseis
+create table TableA
+(
+Id int identity primary key,
+Name nvarchar(50)
+)
+go
+insert into TableA values('Mark')
+go
+create table TableB
+(
+Id int identity primary key,
+Name nvarchar(50)
+)
+go
+insert into TableA values('Mary')
+go
+
+-- server 1
+-- transaction
+-- samm nr 1
+begin tran
+update TableA set 
+Name = 'Mark Transaction 1' 
+where Id = 1
+
+-- samm nr 3
+update TableB set
+Name = 'Mary Transaction 1'
+where Id = 1
+
+commit tran
+
+-- server 2
+-- samm nr 2
+begin tran
+update TableA set 
+Name = 'Mark Transaction 2' 
+where Id = 1
+
+-- samm nr 4
+update TableB set
+Name = 'Mary Transaction 2'
+where Id = 1
+
+commit tran
+
+truncate table TableA
+truncate table TableB
+
+--- Kuidas SQL server tuvastab deadlocki?
+--- Lukustatakse serveri lõim, mis töötab vaikimisi iga 5 sek järel
+--- et tuvastada ummikuid. Kui leiab deadlocki, siis langeb 
+--- deadlocki intervall 5 sek-lt 100 millisekundini.
+
+--- mis juhtub deadlocki tuvastamisel
+--- Tuvastamisel lõpetab DB-mootor deadlocki ja valib ühe lõime 
+--- ohvriks. Seejärel keeratakse deadlockiohvri tehing tagasi ja 
+--- tagastatakse rakendusele viga 1205. Ohvri tehingu tagasitõmbamine
+--- vabastab kõik selle transactioni valduses olevad lukud.
+--- See võimaldab teistel transactionitel blokeringut tühistada ja
+--- edasi liikuda.
+
+--- mis on DEADLOCK_PRIORITY
+--- vaikimisi valib SQL server deadlockiohvri tehingu, mille 
+--- tagasivõtmine on kõige odavam (võtab vähem ressurssi). Seanside 
+--- prioriteeti saab muuta SET DEADLOCK_PRIORTY
+
+--- DEADLOCK_PRIORTY
+--- 1. vaikimisi on see Normali peal
+--- 2. Saab seadistada LOW, NORMAL ja HIGH peale
+--- 3. saab seadistada ka nr väärtusena -10-st kuni 10-ni
+
+--- Ohvri valimise kriteeriumid
+--- 1. Kui prioriteedid on erinevad, siis kõige madalama 
+--- tähtsusega valitakse ohvriks
+--- 2. Kui mõlemal sessioonil on sama prioriteet, siis valitakse 
+--- ohvriks transaction,
+--- mille tagasi viimine on kõige vähem ressurssi nõudev.
+--- 3. Kui mõlemal sessioonil on sama prioriteet ja sama 
+--- ressursi kulutamine, siis ohver valitakse juhuslikuse alusel
+
+truncate table TableA
+truncate table TableB
+
+insert into TableA values('Mark')
+insert into TableA values('Ben')
+insert into TableA values('Todd')
+insert into TableA values('Pam')
+insert into TableA values('Sara')
+
+insert into TableB values('Mary')
+
+-- tran 1 e server nr 1
+-- samm nr 1
+begin tran
+update TableA set Name = Name +
+'Transaction 1' where Id in (1, 2, 3, 4, 5)
+
+-- samm nr 3
+update TableB set Name = Name +
+'Transaction 1' where Id = 1
+
+-- samm 5
+commit tran
+
+-- server nr 2
+-- samm nr 2
+set deadlock_priority high
+go
+begin tran
+update TableB set Name =
+Name + 'Transaction 1' where Id = 1
+
+-- samm nr 4
+update TableA set Name = 
+Name + 'Transaction 1' where Id
+in (1, 2, 3, 4, 5)
+
+-- samm nr 6
+commit tran
+
+-- deadlocki logimine
+
+dbcc Traceon(1222, -1)
+
+dbcc TraceStatus(1222, -1)
+
+dbcc TraceOff(1222, -1)
+
+
+truncate table TableA
+truncate table TableB
+
+-- vaja teha stored procedure: spTransaction1
+-- sinna sisse vaja luua transaction, mis uuendab andmeid
+-- tableA-s ja lõpus teeb TableB-s uuenduse
+-- nende kahe uuenduse vahel on aeg 10 sek
+-- TableA teksti uuendus on Mark Transaction 1
+-- ja TableB uuendus on: Mary Transaction 1
+
+insert into TableA values('Mark')
+insert into TableB values('Mary')
+
+create proc spTransaction1
+as begin
+	begin tran
+	update TableA set Name = 'Mark Transaction 1' where Id = 1
+	waitfor delay '00:00:10'
+	update TableB set Name = 'Mary Transaction 1' where Id = 1
+	commit tran
+end
+
+alter proc spTransaction2
+as begin
+	begin tran
+	update TableB set Name = 'Mark Transaction 2' where Id = 1
+	waitfor delay '00:00:10'
+	update TableA set Name = 'Mary Transaction 2' where Id = 1
+	commit tran
+end
+
+exec spTransaction1
+exec spTransaction2
+
+select * from TableA
+select * from TableB
+
+-- errorlogi kuvamine
+execute sp_readerrorlog
+
+-- kuidas koodi abil vaadata errorit
+select OBJECT_NAME([object_Id]) -- ei ole hetkel objekti id-d
+from sys.partitions
+where hobt_id = 12345467   -- numbrite jada
+
+-- muuta spTransaction1
+-- peab kasutama vea käsitlemist try ja catchiga
+-- update mitte muuta
+-- kui transaction lõppeb, siis tuleb: select 'Transaction Successful'
+-- catchi sees omakorda if ja tingimuseks on ERROR_NUMBER() = 1205
+alter proc spTransaction1
+as begin
+	begin tran
+	begin try
+		update TableB set Name = 'Mark Transaction 1' where Id = 1
+		waitfor delay '00:00:10'
+		update TableA set Name = 'Mary Transaction 1' where Id = 1
+		commit tran
+		select 'Transaction Successful'
+	end try
+	begin catch
+		--vaatab, kas see error on deadlocki oma
+		if(ERROR_NUMBER() = 1205)
+		begin
+			select 'Deadlock. Transaction failed. Please retry'
+		end
+
+		rollback
+	end catch
+end
+-- teisega samamoodi
+alter proc spTransaction2
+as begin
+	begin tran
+	begin try
+		update TableB set Name = 'Mark Transaction 2' where Id = 1
+		waitfor delay '00:00:10'
+		update TableA set Name = 'Mary Transaction 2' where Id = 1
+		commit tran
+		select 'Transaction Successful'
+	end try
+	begin catch
+		--vaatab, kas see error on deadlocki oma
+		if(ERROR_NUMBER() = 1205)
+		begin
+			select 'Deadlock. Transaction failed. Please retry'
+		end
+
+		rollback
+	end catch
+end
+
+-- käivitad esimeses serveris
+exec spTransaction1
+
+-- käivita teises serveris
+exec spTransaction2
+
+SELECT
+    [s_tst].[session_id],
+    [s_es].[login_name] AS [Login Name],
+    DB_NAME (s_tdt.database_id) AS [Database],
+    [s_tdt].[database_transaction_begin_time] AS [Begin Time],
+    [s_tdt].[database_transaction_log_bytes_used] AS [Log Bytes],
+    [s_tdt].[database_transaction_log_bytes_reserved] AS [Log Rsvd],
+    [s_est].text AS [Last T-SQL Text],
+    [s_eqp].[query_plan] AS [Last Plan]
+FROM
+    sys.dm_tran_database_transactions [s_tdt]
+JOIN
+    sys.dm_tran_session_transactions [s_tst]
+ON
+    [s_tst].[transaction_id] = [s_tdt].[transaction_id]
+JOIN
+    sys.[dm_exec_sessions] [s_es]
+ON
+    [s_es].[session_id] = [s_tst].[session_id]
+JOIN
+    sys.dm_exec_connections [s_ec]
+ON
+    [s_ec].[session_id] = [s_tst].[session_id]
+LEFT OUTER JOIN
+    sys.dm_exec_requests [s_er]
+ON
+    [s_er].[session_id] = [s_tst].[session_id]
+CROSS APPLY
+    sys.dm_exec_sql_text ([s_ec].[most_recent_sql_handle]) AS [s_est]
+OUTER APPLY
+    sys.dm_exec_query_plan ([s_er].[plan_handle]) AS [s_eqp]
+ORDER BY
+    [Begin Time] ASC;
+GO
